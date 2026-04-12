@@ -336,15 +336,15 @@ st.subheader(f"Momentum Ranking Time Series ({mom_label})")
 # Compute cross-sectional rank per date for all commodities
 @st.cache_data(ttl=3600)
 def build_rank_ts(metrics: pd.DataFrame, signal: str) -> pd.DataFrame:
-    """Pivot: rows=Date, cols=commodity, values=cross-sectional rank."""
-    dates = metrics["Date"].unique()
-    rows  = []
-    for d in dates:
-        day = metrics[metrics["Date"] == d][["commodity", signal]].copy()
-        day["rank"] = cross_rank(day[signal])
-        for _, r in day.iterrows():
-            rows.append({"Date": d, "commodity": r["commodity"], "rank": r["rank"]})
-    return pd.DataFrame(rows)
+    """Vectorised cross-sectional rank per date."""
+    df = metrics[["Date", "commodity", signal]].copy()
+    def _rank(s):
+        n = s.notna().sum()
+        if n < 2:
+            return pd.Series(np.nan, index=s.index)
+        return ((s.rank(method="average", na_option="keep") - 1) / (n - 1) * 40 - 20).round(1)
+    df["rank"] = df.groupby("Date")[signal].transform(_rank)
+    return df[["Date", "commodity", "rank"]].dropna(subset=["rank"])
 
 ts_cols_default = SOFT_NAMES
 ts_select = st.multiselect(
