@@ -14,7 +14,6 @@ st.set_page_config(page_title="Cross Section Monitor", layout="wide")
 st.markdown("""
 <style>
 [data-testid="stAppViewContainer"]{background:#f5f5f7;}
-[data-testid="stSidebar"]{background:#1d1d1f;}
 h1,h2,h3{color:#1d1d1f;}
 </style>
 """, unsafe_allow_html=True)
@@ -24,44 +23,47 @@ st.title("Cross Section Monitor")
 # ── Constants ─────────────────────────────────────────────────────────────────
 HERE = Path(__file__).parent
 
+# (name, spot_ric, fut_ric, is_soft, gsci_ric)
+# gsci_ric = None  →  no GSCI index; spot_ric (c2) is used for momentum instead
 COMMODITIES = [
-    ("Brent Oil",    "LCOc1",  "LCOc13",  False),
-    ("Cocoa",        "CCc2",   "CCc7",    True),
-    ("Coffee",       "KCc2",   "KCc7",    True),
-    ("Corn",         "Cc1",    "Cc6",     False),
-    ("Cotton",       "CTc2",   "CTc7",    True),
-    ("Gas Oil",      "LGOc1",  "LGOc13",  False),
-    ("Gold",         "GCc1",   "GCc8",    False),
-    ("Heating Oil",  "HOc1",   "HOc13",   False),
-    ("HG Copper",    "HGc1",   "HGc13",   False),
-    ("LDN Cocoa",    "LCCc2",  "LCCc7",   True),
-    ("Lean Hog",     "LHc1",   "LHc9",    False),
-    ("Live Cattle",  "LCc1",   "LCc7",    False),
-    ("Natural Gas",  "NGc1",   "NGc13",   False),
-    ("Silver",       "SIc1",   "SIc8",    False),
-    ("Soy Meal",     "SMc1",   "SMc9",    False),
-    ("Soy Bean",     "Sc1",    "Sc8",     False),
-    ("Soy Oil",      "BOc1",   "BOc9",    False),
-    ("Sugar",        "SBc1",   "SBc5",    True),
-    ("Gasoline",     "RBc1",   "RBc13",   False),
-    ("Wheat",        "Wc1",    "Wc6",     False),
-    ("Wheat (KCB)",  "KWc1",   "KWc6",    False),
-    ("WTI Crude",    "CLc1",   "CLc13",   False),
-    ("White Sugar",  "LSUc1",  "LSUc6",   True),
-    ("Robusta",      "LRCc2",  "LRCc8",   True),
-    ("Canola",       "RSc2",   "RSc7",    False),
-    ("Zinc",         "MZNc2",  "MZNc13",  False),
-    ("Aluminium",    "MALc2",  "MALc13",  False),
-    ("Lead",         "MPBc2",  "MPBc13",  False),
-    ("Copper",       "MCUc2",  "MCUc13",  False),
-    ("Nickel",       "MNIc2",  "MNIc13",  False),
-    ("Tin",          "MSNc2",  "MSNc13",  False),
-    ("Orange Juice", "OJc2",   "OJc7",    True),
+    ("Brent Oil",    "LCOc1",  "LCOc13",  False, ".SPGSBRP"),
+    ("Cocoa",        "CCc2",   "CCc7",    True,  ".SPGSCCP"),
+    ("Coffee",       "KCc2",   "KCc7",    True,  ".SPGSKCP"),
+    ("Corn",         "Cc1",    "Cc6",     False, ".SPGSCNP"),
+    ("Cotton",       "CTc2",   "CTc7",    True,  ".SPGSCTP"),
+    ("Gas Oil",      "LGOc1",  "LGOc13",  False, ".SPGSGOP"),
+    ("Gold",         "GCc1",   "GCc8",    False, ".SPGSGCP"),
+    ("Heating Oil",  "HOc1",   "HOc13",   False, ".SPGSHOP"),
+    ("HG Copper",    "HGc1",   "HGc13",   False, ".SPGSICP"),
+    ("LDN Cocoa",    "LCCc2",  "LCCc7",   True,  None),
+    ("Lean Hog",     "LHc1",   "LHc9",    False, ".SPGSLHP"),
+    ("Live Cattle",  "LCc1",   "LCc7",    False, ".SPGSLCP"),
+    ("Natural Gas",  "NGc1",   "NGc13",   False, ".SPGSNGP"),
+    ("Silver",       "SIc1",   "SIc8",    False, ".SPGSSIP"),
+    ("Soy Meal",     "SMc1",   "SMc9",    False, ".SPGSSMP"),
+    ("Soy Bean",     "Sc1",    "Sc8",     False, ".SPGSSOP"),
+    ("Soy Oil",      "BOc1",   "BOc9",    False, ".SPGSBOP"),
+    ("Sugar",        "SBc1",   "SBc5",    True,  ".SPGSSBP"),
+    ("Gasoline",     "RBc1",   "RBc13",   False, ".SPGSHUP"),
+    ("Wheat",        "Wc1",    "Wc6",     False, ".SPGSWHP"),
+    ("Wheat (KCB)",  "KWc1",   "KWc6",    False, ".SPGSKWP"),
+    ("WTI Crude",    "CLc1",   "CLc13",   False, ".SPGSCLP"),
+    ("White Sugar",  "LSUc1",  "LSUc6",   True,  None),
+    ("Robusta",      "LRCc2",  "LRCc8",   True,  None),
+    ("Canola",       "RSc2",   "RSc7",    False, None),
+    ("Zinc",         "MZNc2",  "MZNc13",  False, ".SPGSIZP"),
+    ("Aluminium",    "MALc2",  "MALc13",  False, ".SPGSIAP"),
+    ("Lead",         "MPBc2",  "MPBc13",  False, ".SPGSILP"),
+    ("Copper",       "MCUc2",  "MCUc13",  False, ".SPGSICP"),
+    ("Nickel",       "MNIc2",  "MNIc13",  False, ".SPGSIKP"),
+    ("Tin",          "MSNc2",  "MSNc13",  False, ".SPGSIS"),
+    ("Orange Juice", "OJc2",   "OJc7",    True,  None),
 ]
 
 NAME2SPOT   = {r[0]: r[1] for r in COMMODITIES}
 NAME2FUT    = {r[0]: r[2] for r in COMMODITIES}
 IS_SOFT     = {r[0]: r[3] for r in COMMODITIES}
+NAME2GSCI   = {r[0]: r[4] for r in COMMODITIES}
 ALL_NAMES   = [r[0] for r in COMMODITIES]
 SOFT_NAMES  = [r[0] for r in COMMODITIES if r[3]]
 
@@ -96,27 +98,37 @@ def build_metrics(df_raw: pd.DataFrame, mom_days: int, vol_days: int) -> pd.Data
         return pd.DataFrame()
 
     frames = []
-    for name, spot_ric, fut_ric, _ in COMMODITIES:
-        spot_df = df_raw[df_raw["RIC"] == spot_ric][["Date","Price"]].rename(columns={"Price":"spot"})
-        fut_df  = df_raw[df_raw["RIC"] == fut_ric][["Date","Price"]].rename(columns={"Price":"future"})
+    for name, spot_ric, fut_ric, _, gsci_ric in COMMODITIES:
+        # Roll yield always uses c2 (spot_ric) and c7 (fut_ric)
+        spot_df = (df_raw[df_raw["RIC"] == spot_ric][["Date","Price"]]
+                   .rename(columns={"Price":"spot"})
+                   .drop_duplicates("Date"))
+        fut_df  = (df_raw[df_raw["RIC"] == fut_ric][["Date","Price"]]
+                   .rename(columns={"Price":"future"})
+                   .drop_duplicates("Date"))
+        roll    = spot_df.merge(fut_df, on="Date", how="inner").set_index("Date").sort_index()
 
-        m = spot_df.merge(fut_df, on="Date", how="inner").set_index("Date").sort_index()
+        # Momentum uses GSCI index if available, else falls back to c2
+        mom_ric = gsci_ric if gsci_ric else spot_ric
+        mom_df  = (df_raw[df_raw["RIC"] == mom_ric][["Date","Price"]]
+                   .rename(columns={"Price":"mom_price"})
+                   .drop_duplicates("Date")
+                   .set_index("Date").sort_index())
+
+        # Align GSCI onto the futures settlement calendar (ffill for holiday mismatches)
+        m = roll.copy()
+        m["mom_price"] = mom_df["mom_price"].reindex(roll.index, method="ffill")
+        m = m.dropna(subset=["spot", "future", "mom_price"])
         if len(m) < mom_days + 5:
             continue
 
-        # Roll yield
+        # Roll yield (c2 / c7)
         m["roll_yield"] = m["spot"] / m["future"] - 1
 
-        # Log returns on spot
-        m["log_ret"] = np.log(m["spot"] / m["spot"].shift(1))
-
-        # N-month return (simple)
-        m["return_N"] = m["spot"].pct_change(mom_days)
-
-        # Vol (annualised)
-        m["vol"] = m["log_ret"].rolling(vol_days).std() * np.sqrt(252)
-
-        # Vol-adj momentum
+        # Momentum calcs on GSCI (or c2 fallback)
+        m["log_ret"]     = np.log(m["mom_price"] / m["mom_price"].shift(1))
+        m["return_N"]    = m["mom_price"].pct_change(mom_days)
+        m["vol"]         = m["log_ret"].rolling(vol_days).std() * np.sqrt(252)
         m["mom_vol_adj"] = m["return_N"] / m["vol"]
 
         m["commodity"] = name
@@ -227,41 +239,32 @@ if df_raw.empty:
 all_dates_str = sorted([pd.Timestamp(d).strftime("%Y-%m-%d") for d in df_raw["Date"].unique()])
 latest_date   = pd.Timestamp(all_dates_str[-1])
 
-col_c1, col_c2, col_c3, col_c4, col_c5 = st.columns([1.2, 1, 1.2, 1, 1.5])
+# ── Sidebar controls ──────────────────────────────────────────────────────────
+with st.sidebar:
+    st.markdown("## Controls")
 
-with col_c1:
-    st.markdown("**Choose Date**")
+    st.markdown("**Date**")
     use_latest = st.button("Latest Date", use_container_width=True)
-
-with col_c2:
-    chosen_date = st.date_input("", value=latest_date.date(),
+    chosen_date = st.date_input("Select Date", value=latest_date.date(),
                                 min_value=pd.Timestamp(all_dates_str[0]).date(),
-                                max_value=latest_date.date(),
-                                label_visibility="collapsed")
-    chosen_str = str(chosen_date)          # "YYYY-MM-DD" — plain Python string
+                                max_value=latest_date.date())
+    chosen_str = str(chosen_date)
     if use_latest:
         chosen_str = all_dates_str[-1]
 
-with col_c3:
-    mom_label = st.radio("Momentum Period", list(MOM_DAYS.keys()),
-                         index=1, horizontal=True)
-    mom_days = MOM_DAYS[mom_label]
+    st.markdown("---")
+    mom_label = st.radio("Momentum Period", list(MOM_DAYS.keys()), index=1)
+    mom_days  = MOM_DAYS[mom_label]
 
-with col_c4:
-    vol_label = st.radio("Volatility Window", list(VOL_DAYS.keys()),
-                         index=1, horizontal=True)
-    vol_days = VOL_DAYS[vol_label]
+    st.markdown("---")
+    vol_label = st.radio("Volatility Window", list(VOL_DAYS.keys()), index=1)
+    vol_days  = VOL_DAYS[vol_label]
 
-with col_c5:
+    st.markdown("---")
     st.markdown("**Previous Period**")
-    pc1, pc2 = st.columns([2, 1])
-    with pc1:
-        prev_label = st.selectbox("", list(PREV_DAYS.keys()),
-                                  index=2, label_visibility="collapsed")
-    with pc2:
-        prev_override = st.number_input("Days", min_value=1, max_value=500,
-                                        value=PREV_DAYS[prev_label],
-                                        label_visibility="collapsed")
+    prev_label    = st.selectbox("Preset", list(PREV_DAYS.keys()), index=2)
+    prev_override = st.number_input("Custom Days", min_value=1, max_value=500,
+                                    value=PREV_DAYS[prev_label])
     prev_days = prev_override
 
 # Pure string comparison (ISO dates sort lexicographically) — no numpy possible
