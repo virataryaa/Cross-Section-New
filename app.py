@@ -101,6 +101,18 @@ CATEGORY_COLOR: dict[str, str] = {
     "Livestock":         "#A88BC4",   # pastel lavender
 }
 
+# Per-commodity color for time series — softs each get a unique vivid color
+COMMODITY_TS_COLOR: dict[str, str] = {
+    "Coffee":       "#1565C0",  # vivid blue
+    "Cocoa":        "#D62728",  # vivid red
+    "Cotton":       "#9467BD",  # vivid purple
+    "LDN Cocoa":    "#17BECF",  # vivid cyan
+    "Sugar":        "#E67E22",  # vivid orange
+    "White Sugar":  "#F5C518",  # vivid amber
+    "Robusta":      "#2CA02C",  # vivid green
+    "Orange Juice": "#E377C2",  # vivid pink
+}
+
 IS_SOFT = {name: (COMMODITY_CATEGORY[name] == "Softs") for name in ALL_NAMES}
 
 MOM_DAYS    = {"3 Months": 63, "6 Months": 126, "12 Months": 252}
@@ -205,7 +217,10 @@ def scatter_fig(snap: pd.DataFrame, x_col: str, y_col: str,
                 ranked: bool = False) -> go.Figure:
     fig = go.Figure()
 
-    for name in ALL_NAMES:
+    # Non-softs rendered first so softs always appear on top
+    render_order = [n for n in ALL_NAMES if not IS_SOFT[n]] + \
+                   [n for n in ALL_NAMES if IS_SOFT[n]]
+    for name in render_order:
         row = snap[snap["commodity"] == name]
         if row.empty:
             continue
@@ -215,16 +230,16 @@ def scatter_fig(snap: pd.DataFrame, x_col: str, y_col: str,
             continue
         is_soft  = IS_SOFT[name]
         color    = CATEGORY_COLOR[COMMODITY_CATEGORY[name]]
-        size     = 10 if is_soft else 7
+        size     = 12 if is_soft else 7
 
         fig.add_trace(go.Scatter(
             x=[xv], y=[yv], mode="markers+text",
-            marker=dict(color=color, size=size),
+            marker=dict(color=color, size=size, line=dict(width=0)),
             text=[name], textposition="middle right",
-            textfont=dict(size=10 if is_soft else 8,
+            textfont=dict(size=11 if is_soft else 8,
                           color=color,
                           family="Arial Black" if is_soft else "Arial"),
-            name=name, showlegend=False,
+            name=name, showlegend=False, cliponaxis=False,
             hovertemplate=f"<b>{name}</b><br>{xlab}: %{{x:.2f}}<br>{ylab}: %{{y:.2f}}<extra></extra>",
         ))
 
@@ -481,7 +496,7 @@ rank_ts = build_rank_ts(metrics, "mom_vol_adj")
 fig_ts = go.Figure()
 for name in ts_select:
     sub = rank_ts[rank_ts["commodity"] == name].sort_values("Date")
-    color = CATEGORY_COLOR[COMMODITY_CATEGORY[name]]
+    color = COMMODITY_TS_COLOR.get(name, CATEGORY_COLOR[COMMODITY_CATEGORY[name]])
     fig_ts.add_trace(go.Scatter(
         x=sub["Date"], y=sub["rank"],
         mode="lines", name=name,
