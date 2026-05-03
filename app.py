@@ -115,6 +115,8 @@ COMMODITY_TS_COLOR: dict[str, str] = {
 
 IS_SOFT = {name: (COMMODITY_CATEGORY[name] == "Softs") for name in ALL_NAMES}
 
+MAX_ANIM_DAYS = 130   # ~6 months; blocks Previous Year from blowing up the browser
+
 MOM_DAYS    = {"3 Months": 63, "6 Months": 126, "12 Months": 252}
 VOL_DAYS    = {"20d": 20, "60d": 60, "120d": 120}
 PREV_DAYS   = {"Previous Day": 1, "Previous Week": 5, "Previous Month": 20,
@@ -300,6 +302,109 @@ def scatter_fig(snap: pd.DataFrame, x_col: str, y_col: str,
     return fig
 
 
+# ── Animated scatter ─────────────────────────────────────────────────────────
+def build_anim_fig(metrics: pd.DataFrame, anim_dates: list, mom_label: str) -> go.Figure:
+    render_order = [n for n in ALL_NAMES if not IS_SOFT[n]] + \
+                   [n for n in ALL_NAMES if IS_SOFT[n]]
+
+    def _xy(snap, name):
+        row = snap[snap["commodity"] == name]
+        if row.empty:
+            return None, None
+        xv, yv = row["rank_mom"].values[0], row["rank_yield"].values[0]
+        return (None, None) if (pd.isna(xv) or pd.isna(yv)) else (float(xv), float(yv))
+
+    snap0 = snapshot(metrics, anim_dates[0])
+
+    # One persistent trace per commodity
+    traces = []
+    for name in render_order:
+        xv, yv   = _xy(snap0, name)
+        is_soft  = IS_SOFT[name]
+        color    = CATEGORY_COLOR[COMMODITY_CATEGORY[name]]
+        traces.append(go.Scatter(
+            x=[xv], y=[yv], mode="markers+text",
+            marker=dict(color=color, size=12 if is_soft else 7, line=dict(width=0)),
+            text=[name], textposition="middle right", cliponaxis=False,
+            textfont=dict(size=11 if is_soft else 8, color=color,
+                          family="Arial Black" if is_soft else "Arial"),
+            name=name, showlegend=False,
+            hovertemplate=f"<b>{name}</b><br>Mom Rank: %{{x:.1f}}<br>Yield Rank: %{{y:.1f}}<extra></extra>",
+        ))
+
+    # Static legend traces (appended after animated traces — not touched by frames)
+    for cat, col in CATEGORY_COLOR.items():
+        traces.append(go.Scatter(x=[None], y=[None], mode="markers",
+                                 marker=dict(color=col, size=9),
+                                 name=cat, showlegend=True))
+
+    # One frame per date
+    frames = []
+    for dt in anim_dates:
+        snap = snapshot(metrics, dt)
+        frames.append(go.Frame(
+            data=[go.Scatter(x=[_xy(snap, n)[0]], y=[_xy(snap, n)[1]])
+                  for n in render_order],
+            name=dt.strftime("%Y-%m-%d"),
+        ))
+
+    slider_steps = [
+        dict(method="animate",
+             args=[[f.name], dict(mode="immediate",
+                                  frame=dict(duration=250, redraw=True),
+                                  transition=dict(duration=80))],
+             label=f.name)
+        for f in frames
+    ]
+
+    fig = go.Figure(data=traces, frames=frames)
+    fig.update_layout(
+        title=dict(text=f"Cross-Section Animation — Momentum (Vol Adj) {mom_label} vs Roll Yield (Ranked)",
+                   font=dict(size=13, color="#1d1d1f")),
+        xaxis=dict(title=f"Momentum (Vol Adj) {mom_label}", range=[-22, 22],
+                   zeroline=True, zerolinecolor="#bbb", zerolinewidth=1,
+                   showgrid=True, gridcolor="#f0f0f0", tickformat=".1f"),
+        yaxis=dict(title="1 Year Spread (Roll Yield)", range=[-22, 22],
+                   zeroline=True, zerolinecolor="#bbb", zerolinewidth=1,
+                   showgrid=True, gridcolor="#f0f0f0", tickformat=".1f"),
+        plot_bgcolor="#ffffff", paper_bgcolor="#ffffff",
+        height=700,
+        margin=dict(l=50, r=20, t=60, b=130),
+        showlegend=True,
+        legend=dict(orientation="h", yanchor="top", y=-0.12,
+                    xanchor="center", x=0.5, font=dict(size=10)),
+        shapes=[
+            dict(type="line", x0=0, x1=0, y0=-22, y1=22,
+                 line=dict(color="#bbb", width=1, dash="dot")),
+            dict(type="line", x0=-22, x1=22, y0=0, y1=0,
+                 line=dict(color="#bbb", width=1, dash="dot")),
+        ],
+        updatemenus=[dict(
+            type="buttons", showactive=False,
+            y=1.07, x=0.5, xanchor="center",
+            pad=dict(r=10, t=10),
+            buttons=[
+                dict(label="▶  Play", method="animate",
+                     args=[None, dict(frame=dict(duration=250, redraw=True),
+                                     fromcurrent=True, mode="immediate",
+                                     transition=dict(duration=80))]),
+                dict(label="⏸  Pause", method="animate",
+                     args=[[None], dict(frame=dict(duration=0, redraw=False),
+                                        mode="immediate")]),
+            ],
+        )],
+        sliders=[dict(
+            active=0, steps=slider_steps,
+            x=0, len=1.0, y=0, yanchor="top",
+            pad=dict(b=10, t=55),
+            currentvalue=dict(prefix="Date: ", visible=True, xanchor="center",
+                              font=dict(size=12, color="#1d1d1f")),
+            transition=dict(duration=80),
+        )],
+    )
+    return fig
+
+
 # ── Outlook email helpers ─────────────────────────────────────────────────────
 def _build_snapshot_html(snap: pd.DataFrame, date_str: str,
                          mom_label: str, vol_label: str) -> str:
@@ -481,7 +586,41 @@ with col_r:
     )
     st.plotly_chart(fig_act_prev, use_container_width=True)
 
-# ── Section 2: Momentum ranking time series ───────────────────────────────────
+# ── Section 2: Animated cross-section ────────────────────────────────────────
+st.markdown("---")
+with st.expander("Animated Cross-Section", expanded=False):
+    _anim_span = curr_idx - prev_idx
+    if _anim_span > MAX_ANIM_DAYS:
+        st.warning(
+            f"Period too long for animation ({_anim_span} trading days). "
+            f"Capped at {MAX_ANIM_DAYS} days (~6 months). "
+            f"Choose Previous Quarter or shorter."
+        )
+        _anim_start = curr_idx - MAX_ANIM_DAYS
+    else:
+        _anim_start = prev_idx
+
+    _anim_dates = [pd.Timestamp(all_dates_str[i])
+                   for i in range(_anim_start, curr_idx + 1)]
+    _anim_key   = (all_dates_str[_anim_start], all_dates_str[curr_idx], mom_label, vol_label)
+
+    st.caption(f"{len(_anim_dates)} frames · {all_dates_str[_anim_start]} → {all_dates_str[curr_idx]}")
+
+    if "anim_cache" not in st.session_state:
+        st.session_state.anim_cache = (None, None)
+
+    if st.button("Generate Animation", use_container_width=True):
+        with st.spinner(f"Building {len(_anim_dates)} frames…"):
+            _fig_anim = build_anim_fig(metrics, _anim_dates, mom_label)
+        st.session_state.anim_cache = (_anim_key, _fig_anim)
+
+    _cached_key, _cached_fig = st.session_state.anim_cache
+    if _cached_fig is not None and _cached_key == _anim_key:
+        st.plotly_chart(_cached_fig, use_container_width=True)
+    elif _cached_fig is not None:
+        st.info("Date or parameters changed — click Generate to refresh.")
+
+# ── Section 3: Momentum ranking time series ───────────────────────────────────
 st.markdown("---")
 st.subheader(f"Momentum Ranking Time Series ({mom_label})")
 
@@ -529,7 +668,7 @@ fig_ts.update_layout(
 )
 st.plotly_chart(fig_ts, use_container_width=True)
 
-# ── Section 3: Volatility ranking (collapsible) ───────────────────────────────
+# ── Section 4: Volatility ranking (collapsible) ───────────────────────────────
 st.markdown("---")
 with st.expander("Volatility Ranking", expanded=False):
     st.markdown(f"##### Cross-Sectional Volatility Rank ({vol_label} window) — {all_dates_str[curr_idx]}")
