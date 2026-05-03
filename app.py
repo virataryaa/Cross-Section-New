@@ -9,6 +9,12 @@ import plotly.graph_objects as go
 import streamlit as st
 from pathlib import Path
 
+try:
+    import win32com.client as _win32
+    _OUTLOOK_OK = True
+except ImportError:
+    _OUTLOOK_OK = False
+
 # ── Page config ───────────────────────────────────────────────────────────────
 st.set_page_config(page_title="Cross Section Monitor", layout="wide")
 st.markdown("""
@@ -62,19 +68,46 @@ COMMODITIES = [
 
 NAME2SPOT   = {r[0]: r[1] for r in COMMODITIES}
 NAME2FUT    = {r[0]: r[2] for r in COMMODITIES}
-IS_SOFT     = {r[0]: r[3] for r in COMMODITIES}
 NAME2GSCI   = {r[0]: r[4] for r in COMMODITIES}
 ALL_NAMES   = [r[0] for r in COMMODITIES]
 SOFT_NAMES  = [r[0] for r in COMMODITIES if r[3]]
+
+COMMODITY_CATEGORY: dict[str, str] = {
+    # Softs
+    "Coffee": "Softs", "Cocoa": "Softs", "LDN Cocoa": "Softs", "Cotton": "Softs",
+    "Sugar": "Softs", "White Sugar": "Softs", "Robusta": "Softs", "Orange Juice": "Softs",
+    # Energy
+    "Brent Oil": "Energy", "WTI Crude": "Energy", "Gas Oil": "Energy",
+    "Heating Oil": "Energy", "Gasoline": "Energy", "Natural Gas": "Energy",
+    # Precious Metals
+    "Gold": "Precious Metals", "Silver": "Precious Metals",
+    # Base Metals (COMEX + LME merged)
+    "HG Copper": "Base Metals", "Zinc": "Base Metals", "Aluminium": "Base Metals",
+    "Lead": "Base Metals", "Copper": "Base Metals", "Nickel": "Base Metals", "Tin": "Base Metals",
+    # Grains & Oilseeds
+    "Corn": "Grains & Oilseeds", "Wheat": "Grains & Oilseeds", "Wheat (KCB)": "Grains & Oilseeds",
+    "Soy Bean": "Grains & Oilseeds", "Soy Meal": "Grains & Oilseeds",
+    "Soy Oil": "Grains & Oilseeds", "Canola": "Grains & Oilseeds",
+    # Livestock
+    "Lean Hog": "Livestock", "Live Cattle": "Livestock",
+}
+
+CATEGORY_COLOR: dict[str, str] = {
+    "Softs":             "#1565C0",   # bold vivid blue
+    "Energy":            "#E8976A",   # pastel orange
+    "Precious Metals":   "#C9A028",   # muted gold
+    "Base Metals":       "#7A9BB5",   # pastel steel blue
+    "Grains & Oilseeds": "#7AAF82",   # pastel sage green
+    "Livestock":         "#A88BC4",   # pastel lavender
+}
+
+IS_SOFT = {name: (COMMODITY_CATEGORY[name] == "Softs") for name in ALL_NAMES}
 
 MOM_DAYS    = {"3 Months": 63, "6 Months": 126, "12 Months": 252}
 VOL_DAYS    = {"20d": 20, "60d": 60, "120d": 120}
 PREV_DAYS   = {"Previous Day": 1, "Previous Week": 5, "Previous Month": 20,
                "Previous Quarter": 60, "Previous Year": 250}
 
-DARK_RED    = "#8b1a1a"
-SOFT_COLOR  = "#1a3a5c"
-OTHER_COLOR = "#8b0000"
 N           = len(ALL_NAMES)
 
 # ── Data loading ──────────────────────────────────────────────────────────────
@@ -180,9 +213,9 @@ def scatter_fig(snap: pd.DataFrame, x_col: str, y_col: str,
         yv = row[y_col].values[0]
         if pd.isna(xv) or pd.isna(yv):
             continue
-        is_soft = IS_SOFT[name]
-        color   = SOFT_COLOR if is_soft else OTHER_COLOR
-        size    = 10 if is_soft else 7
+        is_soft  = IS_SOFT[name]
+        color    = CATEGORY_COLOR[COMMODITY_CATEGORY[name]]
+        size     = 10 if is_soft else 7
 
         fig.add_trace(go.Scatter(
             x=[xv], y=[yv], mode="markers+text",
@@ -193,6 +226,13 @@ def scatter_fig(snap: pd.DataFrame, x_col: str, y_col: str,
                           family="Arial Black" if is_soft else "Arial"),
             name=name, showlegend=False,
             hovertemplate=f"<b>{name}</b><br>{xlab}: %{{x:.2f}}<br>{ylab}: %{{y:.2f}}<extra></extra>",
+        ))
+
+    for cat, col in CATEGORY_COLOR.items():
+        fig.add_trace(go.Scatter(
+            x=[None], y=[None], mode="markers",
+            marker=dict(color=col, size=9),
+            name=cat, showlegend=True,
         ))
 
     xfmt = ".0%" if x_pct else ".1f"
@@ -221,11 +261,79 @@ def scatter_fig(snap: pd.DataFrame, x_col: str, y_col: str,
                    tickformat=yfmt, showgrid=True, gridcolor="#f0f0f0", **yaxis_extra),
         plot_bgcolor="#ffffff",
         paper_bgcolor="#ffffff",
-        margin=dict(l=50, r=20, t=50, b=50),
+        margin=dict(l=50, r=20, t=50, b=70),
         height=620,
         shapes=shapes,
+        showlegend=True,
+        legend=dict(orientation="h", yanchor="top", y=-0.08,
+                    xanchor="center", x=0.5, font=dict(size=10)),
     )
     return fig
+
+
+# ── Outlook email helpers ─────────────────────────────────────────────────────
+def _build_snapshot_html(snap: pd.DataFrame, date_str: str,
+                         mom_label: str, vol_label: str) -> str:
+    tbl = snap[["commodity", "rank_mom", "rank_yield", "rank_vol",
+                "mom_vol_adj", "roll_yield"]].copy()
+    tbl = tbl.dropna(subset=["rank_mom"]).sort_values("rank_mom", ascending=False).reset_index(drop=True)
+
+    rows = ""
+    for i, row in tbl.iterrows():
+        cat   = COMMODITY_CATEGORY.get(row["commodity"], "")
+        color = CATEGORY_COLOR.get(cat, "#333")
+        bold  = "font-weight:bold;" if cat == "Softs" else ""
+        bg    = "#fafafa" if i % 2 == 0 else "#ffffff"
+        ry    = f"{row['roll_yield']*100:.1f}%" if pd.notna(row["roll_yield"]) else "—"
+        mom   = f"{row['mom_vol_adj']:.2f}"      if pd.notna(row["mom_vol_adj"]) else "—"
+        rows += (
+            f'<tr style="background:{bg}">'
+            f'<td style="color:{color};{bold}padding:5px 8px">{row["commodity"]}</td>'
+            f'<td style="padding:5px 8px;color:#555">{cat}</td>'
+            f'<td style="text-align:center;padding:5px 8px">{row["rank_mom"]:.1f}</td>'
+            f'<td style="text-align:center;padding:5px 8px">{row["rank_yield"]:.1f}</td>'
+            f'<td style="text-align:center;padding:5px 8px">{row["rank_vol"]:.1f}</td>'
+            f'<td style="text-align:center;padding:5px 8px">{mom}</td>'
+            f'<td style="text-align:center;padding:5px 8px">{ry}</td>'
+            f'</tr>'
+        )
+
+    th = "background:#1565C0;color:#fff;padding:6px 8px;text-align:left;"
+    thc = "background:#1565C0;color:#fff;padding:6px 8px;text-align:center;"
+    return f"""
+<html><body style="font-family:Arial,sans-serif;font-size:13px;color:#1d1d1f">
+<h2 style="color:#1565C0;margin-bottom:4px">Cross Section Monitor</h2>
+<p style="margin:0;color:#555">
+  <b>Date:</b> {date_str} &nbsp;|&nbsp;
+  <b>Momentum:</b> {mom_label} &nbsp;|&nbsp;
+  <b>Vol Window:</b> {vol_label}
+</p><br>
+<table border="0" cellpadding="0" cellspacing="0"
+       style="border-collapse:collapse;width:680px;font-size:12px">
+  <tr>
+    <th style="{th}">Commodity</th>
+    <th style="{th}">Category</th>
+    <th style="{thc}">Mom Rank</th>
+    <th style="{thc}">Yield Rank</th>
+    <th style="{thc}">Vol Rank</th>
+    <th style="{thc}">Mom (Vol Adj)</th>
+    <th style="{thc}">Roll Yield</th>
+  </tr>
+  {rows}
+</table>
+<br><p style="color:#aaa;font-size:10px">Cross Section Monitor — auto-generated</p>
+</body></html>"""
+
+
+def _send_outlook_snapshot(snap: pd.DataFrame, date_str: str,
+                           mom_label: str, vol_label: str) -> None:
+    html    = _build_snapshot_html(snap, date_str, mom_label, vol_label)
+    outlook = _win32.Dispatch("Outlook.Application")
+    mail    = outlook.CreateItem(0)
+    mail.To      = "viratarya30@gmail.com"
+    mail.Subject = f"Cross Section Monitor — {date_str} | {mom_label}"
+    mail.HTMLBody = html
+    mail.Display()
 
 
 # ── Controls ──────────────────────────────────────────────────────────────────
@@ -267,6 +375,14 @@ with st.sidebar:
                                     value=PREV_DAYS[prev_label])
     prev_days = prev_override
 
+    st.markdown("---")
+    st.markdown("**Email Snapshot**")
+    _send_clicked = st.button("Send Snapshot via Outlook",
+                              use_container_width=True,
+                              disabled=not _OUTLOOK_OK)
+    if not _OUTLOOK_OK:
+        st.caption("pywin32 not available")
+
 # Pure string comparison (ISO dates sort lexicographically) — no numpy possible
 curr_idx = max(0, sum(1 for s in all_dates_str if s <= chosen_str) - 1)
 prev_idx = max(0, curr_idx - int(prev_days))
@@ -284,6 +400,13 @@ if metrics.empty:
 
 snap_curr = snapshot(metrics, curr_ts)
 snap_prev = snapshot(metrics, prev_ts)
+
+if _send_clicked:
+    try:
+        _send_outlook_snapshot(snap_curr, all_dates_str[curr_idx], mom_label, vol_label)
+        st.sidebar.success("Opened in Outlook — review and hit Send.")
+    except Exception as e:
+        st.sidebar.error(f"Outlook error: {e}")
 
 mom_xlab  = f"Momentum (Vol Adj) {mom_label}"
 
@@ -356,20 +479,9 @@ ts_select = st.multiselect(
 rank_ts = build_rank_ts(metrics, "mom_vol_adj")
 
 fig_ts = go.Figure()
-# Unique color per commodity — consistent regardless of selection
-PALETTE = [
-    "#1f77b4","#d62728","#2ca02c","#ff7f0e","#9467bd",
-    "#8c564b","#e377c2","#17becf","#bcbd22","#7f7f7f",
-    "#aec7e8","#ff9896","#98df8a","#ffbb78","#c5b0d5",
-    "#c49c94","#f7b6d2","#dbdb8d","#9edae5","#393b79",
-    "#6b6ecf","#b5cf6b","#e7969c","#9c9ede","#cedb9c",
-    "#e7cb94","#e7ba52","#843c39","#ad494a","#d6616b",
-    "#3182bd",
-]
 for name in ts_select:
     sub = rank_ts[rank_ts["commodity"] == name].sort_values("Date")
-    cidx = ALL_NAMES.index(name)
-    color = PALETTE[cidx % len(PALETTE)]
+    color = CATEGORY_COLOR[COMMODITY_CATEGORY[name]]
     fig_ts.add_trace(go.Scatter(
         x=sub["Date"], y=sub["rank"],
         mode="lines", name=name,

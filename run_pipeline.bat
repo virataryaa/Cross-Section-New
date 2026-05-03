@@ -1,7 +1,7 @@
 @echo off
 SET DIR=C:\Users\virat.arya\ETG\SoftsDatabase - Documents\Database\Hardmine\Non Fundamental\Cross Section
 SET LOG=%DIR%\logs\automation_log.txt
-SET PYTHON=C:\Users\virat.arya\.conda\envs\base\python.exe
+SET PYTHON=C:\Users\virat.arya\AppData\Local\anaconda3\python.exe
 
 echo. >> "%LOG%"
 echo ============================================ >> "%LOG%"

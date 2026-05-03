@@ -102,15 +102,20 @@ def fetch() -> pd.DataFrame:
 
     # ── 1. GSCI indices → TR.PriceClose ───────────────────────────────────────
     print(f"Fetching {len(GSCI_RICS)} GSCI RICs (TR.PriceClose) from {gsci_start} to {end} ...")
-    raw_gsci = rd.get_history(
-        universe=GSCI_RICS,
-        fields=["TR.PriceClose"],
-        start=gsci_start,
-        end=end,
-        interval="daily",
-    )
-    raw_gsci.index = pd.to_datetime(raw_gsci.index)
-    df_gsci = _to_long(raw_gsci, GSCI_RICS)
+    try:
+        raw_gsci = rd.get_history(
+            universe=GSCI_RICS,
+            fields=["TR.PriceClose"],
+            start=gsci_start,
+            end=end,
+            interval="daily",
+        )
+        raw_gsci.index = pd.to_datetime(raw_gsci.index)
+        df_gsci = _to_long(raw_gsci, GSCI_RICS)
+        print(f"  GSCI: {len(df_gsci):,} rows fetched.")
+    except Exception as e:
+        print(f"  WARNING: GSCI fetch failed ({e}). Momentum will fall back to spot prices.")
+        df_gsci = pd.DataFrame()
 
     # ── 2. Continuous futures → TR.SETTLEMENTPRICE (roll yield + fallback mom) ─
     print(f"Fetching {len(ROLL_RICS)} continuous RICs (TR.SETTLEMENTPRICE) from {roll_start} to {end} ...")
