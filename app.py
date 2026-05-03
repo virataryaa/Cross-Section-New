@@ -182,7 +182,21 @@ def build_metrics(df_raw: pd.DataFrame, mom_days: int, vol_days: int) -> pd.Data
 
     if not frames:
         return pd.DataFrame()
-    return pd.concat(frames, ignore_index=True)
+    df = pd.concat(frames, ignore_index=True)
+
+    # Each commodity trades on its own exchange calendar, so different commodities
+    # have different missing dates (US holidays vs UK holidays vs LME, etc.).
+    # Reindex every commodity onto a shared business-day spine and forward-fill
+    # gaps up to 5 days so all commodities appear on every date in the snapshot.
+    spine = pd.date_range(df["Date"].min(), df["Date"].max(), freq="B")
+    metric_cols = ["spot", "future", "return_N", "vol", "mom_vol_adj", "roll_yield"]
+    filled = []
+    for name, grp in df.groupby("commodity"):
+        g = grp.set_index("Date")[metric_cols].reindex(spine).ffill(limit=5)
+        g["commodity"] = name
+        filled.append(g.reset_index().rename(columns={"index": "Date"}))
+
+    return pd.concat(filled, ignore_index=True)
 
 
 def cross_rank(series: pd.Series) -> pd.Series:
