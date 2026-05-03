@@ -303,7 +303,15 @@ def scatter_fig(snap: pd.DataFrame, x_col: str, y_col: str,
 
 
 # ── Animated scatter ─────────────────────────────────────────────────────────
-def build_anim_fig(metrics: pd.DataFrame, anim_dates: list, mom_label: str) -> go.Figure:
+# Transition slightly longer than frame duration → dots are always mid-glide,
+# creating a continuous plane-glide feel rather than step-by-step jumps.
+_FRAME_MS      = 350
+_TRANSITION_MS = 420
+_EASING        = "sin-in-out"   # sinusoidal: gentlest natural acceleration curve
+
+
+def build_anim_fig(metrics: pd.DataFrame, anim_dates: list,
+                   mom_label: str, on_progress=None) -> go.Figure:
     render_order = [n for n in ALL_NAMES if not IS_SOFT[n]] + \
                    [n for n in ALL_NAMES if IS_SOFT[n]]
 
@@ -316,12 +324,12 @@ def build_anim_fig(metrics: pd.DataFrame, anim_dates: list, mom_label: str) -> g
 
     snap0 = snapshot(metrics, anim_dates[0])
 
-    # One persistent trace per commodity
+    # One persistent trace per commodity (non-softs first so softs render on top)
     traces = []
     for name in render_order:
-        xv, yv   = _xy(snap0, name)
-        is_soft  = IS_SOFT[name]
-        color    = CATEGORY_COLOR[COMMODITY_CATEGORY[name]]
+        xv, yv  = _xy(snap0, name)
+        is_soft = IS_SOFT[name]
+        color   = CATEGORY_COLOR[COMMODITY_CATEGORY[name]]
         traces.append(go.Scatter(
             x=[xv], y=[yv], mode="markers+text",
             marker=dict(color=color, size=12 if is_soft else 7, line=dict(width=0)),
@@ -332,27 +340,31 @@ def build_anim_fig(metrics: pd.DataFrame, anim_dates: list, mom_label: str) -> g
             hovertemplate=f"<b>{name}</b><br>Mom Rank: %{{x:.1f}}<br>Yield Rank: %{{y:.1f}}<extra></extra>",
         ))
 
-    # Static legend traces (appended after animated traces — not touched by frames)
+    # Static legend traces — after animated traces, so frames don't touch them
     for cat, col in CATEGORY_COLOR.items():
         traces.append(go.Scatter(x=[None], y=[None], mode="markers",
                                  marker=dict(color=col, size=9),
                                  name=cat, showlegend=True))
 
-    # One frame per date
+    # One frame per date — progress callback fired after each
+    total  = len(anim_dates)
     frames = []
-    for dt in anim_dates:
+    for i, dt in enumerate(anim_dates):
         snap = snapshot(metrics, dt)
         frames.append(go.Frame(
             data=[go.Scatter(x=[_xy(snap, n)[0]], y=[_xy(snap, n)[1]])
                   for n in render_order],
             name=dt.strftime("%Y-%m-%d"),
         ))
+        if on_progress:
+            on_progress(i + 1, total)
+
+    _t = dict(duration=_TRANSITION_MS, easing=_EASING)
+    _f = dict(duration=_FRAME_MS, redraw=False)
 
     slider_steps = [
         dict(method="animate",
-             args=[[f.name], dict(mode="immediate",
-                                  frame=dict(duration=300, redraw=False),
-                                  transition=dict(duration=250, easing="cubic-in-out"))],
+             args=[[f.name], dict(mode="immediate", frame=_f, transition=_t)],
              label=f.name)
         for f in frames
     ]
@@ -385,12 +397,11 @@ def build_anim_fig(metrics: pd.DataFrame, anim_dates: list, mom_label: str) -> g
             pad=dict(r=10, t=10),
             buttons=[
                 dict(label="▶  Play", method="animate",
-                     args=[None, dict(frame=dict(duration=300, redraw=False),
-                                     fromcurrent=True, mode="immediate",
-                                     transition=dict(duration=250, easing="cubic-in-out"))]),
+                     args=[None, dict(frame=_f, fromcurrent=True,
+                                     mode="immediate", transition=_t)]),
                 dict(label="⏸  Pause", method="animate",
                      args=[[None], dict(frame=dict(duration=0, redraw=False),
-                                        mode="immediate")]),
+                                       mode="immediate")]),
             ],
         )],
         sliders=[dict(
@@ -399,7 +410,7 @@ def build_anim_fig(metrics: pd.DataFrame, anim_dates: list, mom_label: str) -> g
             pad=dict(b=10, t=55),
             currentvalue=dict(prefix="Date: ", visible=True, xanchor="center",
                               font=dict(size=12, color="#1d1d1f")),
-            transition=dict(duration=250, easing="cubic-in-out"),
+            transition=_t,
         )],
     )
     return fig
@@ -610,8 +621,12 @@ with st.expander("Animated Cross-Section", expanded=False):
         st.session_state.anim_cache = (None, None)
 
     if st.button("Generate Animation", use_container_width=True):
-        with st.spinner(f"Building {len(_anim_dates)} frames…"):
-            _fig_anim = build_anim_fig(metrics, _anim_dates, mom_label)
+        _prog = st.progress(0, text=f"Building frame 1 / {len(_anim_dates)}…")
+        def _on_progress(i, total):
+            _prog.progress(i / total, text=f"Building frame {i} / {total}…")
+        _fig_anim = build_anim_fig(metrics, _anim_dates, mom_label,
+                                   on_progress=_on_progress)
+        _prog.empty()
         st.session_state.anim_cache = (_anim_key, _fig_anim)
 
     _cached_key, _cached_fig = st.session_state.anim_cache
