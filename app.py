@@ -351,8 +351,8 @@ def build_anim_fig(metrics: pd.DataFrame, anim_dates: list, mom_label: str) -> g
     slider_steps = [
         dict(method="animate",
              args=[[f.name], dict(mode="immediate",
-                                  frame=dict(duration=250, redraw=True),
-                                  transition=dict(duration=80))],
+                                  frame=dict(duration=300, redraw=False),
+                                  transition=dict(duration=250, easing="cubic-in-out"))],
              label=f.name)
         for f in frames
     ]
@@ -385,9 +385,9 @@ def build_anim_fig(metrics: pd.DataFrame, anim_dates: list, mom_label: str) -> g
             pad=dict(r=10, t=10),
             buttons=[
                 dict(label="▶  Play", method="animate",
-                     args=[None, dict(frame=dict(duration=250, redraw=True),
+                     args=[None, dict(frame=dict(duration=300, redraw=False),
                                      fromcurrent=True, mode="immediate",
-                                     transition=dict(duration=80))]),
+                                     transition=dict(duration=250, easing="cubic-in-out"))]),
                 dict(label="⏸  Pause", method="animate",
                      args=[[None], dict(frame=dict(duration=0, redraw=False),
                                         mode="immediate")]),
@@ -399,7 +399,7 @@ def build_anim_fig(metrics: pd.DataFrame, anim_dates: list, mom_label: str) -> g
             pad=dict(b=10, t=55),
             currentvalue=dict(prefix="Date: ", visible=True, xanchor="center",
                               font=dict(size=12, color="#1d1d1f")),
-            transition=dict(duration=80),
+            transition=dict(duration=250, easing="cubic-in-out"),
         )],
     )
     return fig
