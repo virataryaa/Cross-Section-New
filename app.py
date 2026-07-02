@@ -408,8 +408,7 @@ def build_anim_fig(metrics: pd.DataFrame, anim_dates: list,
             active=0, steps=slider_steps,
             x=0, len=1.0, y=0, yanchor="top",
             pad=dict(b=10, t=55),
-            currentvalue=dict(prefix="", visible=True, xanchor="center",
-                              font=dict(size=12, color="#1d1d1f")),
+            currentvalue=dict(visible=False),
             transition=_t,
         )],
     )
@@ -682,6 +681,41 @@ fig_ts.update_layout(
     height=420,
 )
 st.plotly_chart(fig_ts, use_container_width=True)
+
+# ── Section 3b: Spread (Roll Yield) ranking time series ───────────────────────
+st.markdown("---")
+st.subheader("Spread Ranking Time Series (Roll Yield)")
+
+spread_ts_select = st.multiselect(
+    "Select commodities for time series",
+    options=ALL_NAMES,
+    default=ts_cols_default,
+    key="spread_ts_multiselect",
+)
+
+rank_ts_spread = build_rank_ts(metrics, "roll_yield")
+
+fig_ts_spread = go.Figure()
+for name in spread_ts_select:
+    sub = rank_ts_spread[rank_ts_spread["commodity"] == name].sort_values("Date")
+    color = COMMODITY_TS_COLOR.get(name, CATEGORY_COLOR[COMMODITY_CATEGORY[name]])
+    fig_ts_spread.add_trace(go.Scatter(
+        x=sub["Date"], y=sub["rank"],
+        mode="lines", name=name,
+        line=dict(color=color, width=2.5 if IS_SOFT[name] else 1.5),
+    ))
+
+fig_ts_spread.update_layout(
+    xaxis=dict(title="Date", showgrid=True, gridcolor="#f0f0f0"),
+    yaxis=dict(title="Cross-Sectional Rank (−20 to +20)",
+               range=[-22, 22], zeroline=True, zerolinecolor="#bbb",
+               showgrid=True, gridcolor="#f0f0f0"),
+    plot_bgcolor="#ffffff", paper_bgcolor="#ffffff",
+    legend=dict(orientation="h", yanchor="bottom", y=-0.3, xanchor="center", x=0.5),
+    margin=dict(l=50, r=20, t=30, b=80),
+    height=420,
+)
+st.plotly_chart(fig_ts_spread, use_container_width=True)
 
 # ── Section 4: Volatility ranking (collapsible) ───────────────────────────────
 st.markdown("---")
