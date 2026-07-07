@@ -791,7 +791,7 @@ with tab_ags:
     ag_ts_select = st.multiselect(
         "Select commodities for time series",
         options=AG_NAMES,
-        default=AG_NAMES,
+        default=SOFT_NAMES,
         key="ag_ts_multiselect",
     )
 
@@ -805,7 +805,7 @@ with tab_ags:
     ag_spread_ts_select = st.multiselect(
         "Select commodities for time series",
         options=AG_NAMES,
-        default=AG_NAMES,
+        default=SOFT_NAMES,
         key="ag_spread_ts_multiselect",
     )
 
