@@ -84,10 +84,11 @@ COMMODITY_CATEGORY: dict[str, str] = {
     # Base Metals (COMEX + LME merged)
     "HG Copper": "Base Metals", "Zinc": "Base Metals", "Aluminium": "Base Metals",
     "Lead": "Base Metals", "Copper": "Base Metals", "Nickel": "Base Metals", "Tin": "Base Metals",
-    # Grains & Oilseeds
-    "Corn": "Grains & Oilseeds", "Wheat": "Grains & Oilseeds", "Wheat (KCB)": "Grains & Oilseeds",
-    "Soy Bean": "Grains & Oilseeds", "Soy Meal": "Grains & Oilseeds",
-    "Soy Oil": "Grains & Oilseeds", "Canola": "Grains & Oilseeds",
+    # Grains
+    "Corn": "Grains", "Wheat": "Grains", "Wheat (KCB)": "Grains",
+    # Oilseeds
+    "Soy Bean": "Oilseeds", "Soy Meal": "Oilseeds",
+    "Soy Oil": "Oilseeds", "Canola": "Oilseeds",
     # Livestock
     "Lean Hog": "Livestock", "Live Cattle": "Livestock",
 }
@@ -97,7 +98,8 @@ CATEGORY_COLOR: dict[str, str] = {
     "Energy":            "#E8976A",   # pastel orange
     "Precious Metals":   "#C9A028",   # muted gold
     "Base Metals":       "#7A9BB5",   # pastel steel blue
-    "Grains & Oilseeds": "#7AAF82",   # pastel sage green
+    "Grains":            "#C9B37C",   # pastel wheat tan
+    "Oilseeds":          "#7AAF82",   # pastel sage green
     "Livestock":         "#A88BC4",   # pastel lavender
 }
 
@@ -115,7 +117,7 @@ COMMODITY_TS_COLOR: dict[str, str] = {
 
 IS_SOFT = {name: (COMMODITY_CATEGORY[name] == "Softs") for name in ALL_NAMES}
 
-AG_CATEGORIES = {"Softs", "Grains & Oilseeds", "Livestock"}
+AG_CATEGORIES = {"Softs", "Grains", "Oilseeds", "Livestock"}
 AG_NAMES      = [n for n in ALL_NAMES if COMMODITY_CATEGORY[n] in AG_CATEGORIES]
 
 MAX_ANIM_DAYS = 130   # ~6 months; blocks Previous Year from blowing up the browser
@@ -752,7 +754,7 @@ with tab_all:
             st.dataframe(tbl.set_index("Commodity"), use_container_width=True)
 
 with tab_ags:
-    # Ranks recomputed within the Ags-only universe (Softs + Grains & Oilseeds +
+    # Ranks recomputed within the Ags-only universe (Softs + Grains + Oilseeds +
     # Livestock), not sliced from the 31-name global rank — so a name's rank here
     # reflects its standing among ags only, and will differ from the main tab.
     metrics_ag  = metrics[metrics["commodity"].isin(AG_NAMES)]
