@@ -503,13 +503,29 @@ with st.sidebar:
     st.markdown("## Controls")
 
     st.markdown("**Date**")
+    st.caption(f"Latest available date: **{all_dates_str[-1]}**")
+
+    # Snap to the latest date on every rerun (e.g. after a fresh ingest) unless
+    # the user has explicitly picked a different date in this browser session.
+    if "date_input_widget" not in st.session_state:
+        st.session_state.date_input_widget = latest_date.date()
+        st.session_state._user_overrode_date = False
+    if not st.session_state.get("_user_overrode_date", False):
+        st.session_state.date_input_widget = latest_date.date()
+
+    def _on_date_change():
+        st.session_state._user_overrode_date = True
+
     use_latest = st.button("Latest Date", use_container_width=True)
-    chosen_date = st.date_input("Select Date", value=latest_date.date(),
-                                min_value=pd.Timestamp(all_dates_str[0]).date(),
-                                max_value=latest_date.date())
-    chosen_str = str(chosen_date)
     if use_latest:
-        chosen_str = all_dates_str[-1]
+        st.session_state.date_input_widget = latest_date.date()
+        st.session_state._user_overrode_date = False
+
+    chosen_date = st.date_input("Select Date", key="date_input_widget",
+                                min_value=pd.Timestamp(all_dates_str[0]).date(),
+                                max_value=latest_date.date(),
+                                on_change=_on_date_change)
+    chosen_str = str(chosen_date)
 
     st.markdown("---")
     mom_label = st.radio("Momentum Period", list(MOM_DAYS.keys()), index=1)
