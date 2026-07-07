@@ -115,6 +115,9 @@ COMMODITY_TS_COLOR: dict[str, str] = {
 
 IS_SOFT = {name: (COMMODITY_CATEGORY[name] == "Softs") for name in ALL_NAMES}
 
+AG_CATEGORIES = {"Softs", "Grains & Oilseeds", "Livestock"}
+AG_NAMES      = [n for n in ALL_NAMES if COMMODITY_CATEGORY[n] in AG_CATEGORIES]
+
 MAX_ANIM_DAYS = 130   # ~6 months; blocks Previous Year from blowing up the browser
 
 MOM_DAYS    = {"3 Months": 63, "6 Months": 126, "12 Months": 252}
@@ -230,12 +233,13 @@ def snapshot(metrics: pd.DataFrame, date: pd.Timestamp) -> pd.DataFrame:
 def scatter_fig(snap: pd.DataFrame, x_col: str, y_col: str,
                 title: str, xlab: str, ylab: str,
                 x_pct: bool = False, y_pct: bool = False,
-                ranked: bool = False) -> go.Figure:
+                ranked: bool = False, names: list = None) -> go.Figure:
     fig = go.Figure()
+    names = names if names is not None else ALL_NAMES
 
     # Non-softs rendered first so softs always appear on top
-    render_order = [n for n in ALL_NAMES if not IS_SOFT[n]] + \
-                   [n for n in ALL_NAMES if IS_SOFT[n]]
+    render_order = [n for n in names if not IS_SOFT[n]] + \
+                   [n for n in names if IS_SOFT[n]]
     for name in render_order:
         row = snap[snap["commodity"] == name]
         if row.empty:
@@ -259,7 +263,10 @@ def scatter_fig(snap: pd.DataFrame, x_col: str, y_col: str,
             hovertemplate=f"<b>{name}</b><br>{xlab}: %{{x:.2f}}<br>{ylab}: %{{y:.2f}}<extra></extra>",
         ))
 
+    categories_present = {COMMODITY_CATEGORY[n] for n in names}
     for cat, col in CATEGORY_COLOR.items():
+        if cat not in categories_present:
+            continue
         fig.add_trace(go.Scatter(
             x=[None], y=[None], mode="markers",
             marker=dict(color=col, size=9),
@@ -554,91 +561,7 @@ if _send_clicked:
 
 mom_xlab  = f"Momentum (Vol Adj) {mom_label}"
 
-# ── Section 1: Scatter charts ─────────────────────────────────────────────────
-st.markdown("---")
-st.subheader("Momentum vs Roll Yield Scatter")
-
-col_l, col_r = st.columns(2)
-
-with col_l:
-    fig_rank_curr = scatter_fig(
-        snap_curr, "rank_mom", "rank_yield",
-        "Momentum vs Spread Scatter (Relative Rank Basis)",
-        mom_xlab, "1 Year Spread",
-        ranked=True,
-    )
-    st.plotly_chart(fig_rank_curr, use_container_width=True)
-
-    fig_act_curr = scatter_fig(
-        snap_curr, "mom_vol_adj", "roll_yield",
-        "Momentum vs Spread Scatter (Actual)",
-        mom_xlab, "1 Year Spread",
-        x_pct=False, y_pct=True,
-        ranked=False,
-    )
-    st.plotly_chart(fig_act_curr, use_container_width=True)
-
-with col_r:
-    fig_rank_prev = scatter_fig(
-        snap_prev, "rank_mom", "rank_yield",
-        f"Momentum vs Spread Scatter (Relative Rank Basis) : {prev_label}",
-        mom_xlab, "1 Year Spread",
-        ranked=True,
-    )
-    st.plotly_chart(fig_rank_prev, use_container_width=True)
-
-    fig_act_prev = scatter_fig(
-        snap_prev, "mom_vol_adj", "roll_yield",
-        f"Momentum vs Spread Scatter (Actual) : {prev_label}",
-        mom_xlab, "1 Year Spread",
-        x_pct=False, y_pct=True,
-        ranked=False,
-    )
-    st.plotly_chart(fig_act_prev, use_container_width=True)
-
-# ── Section 2: Animated cross-section ────────────────────────────────────────
-st.markdown("---")
-with st.expander("Animated Cross-Section", expanded=False):
-    _anim_span = curr_idx - prev_idx
-    if _anim_span > MAX_ANIM_DAYS:
-        st.warning(
-            f"Period too long for animation ({_anim_span} trading days). "
-            f"Capped at {MAX_ANIM_DAYS} days (~6 months). "
-            f"Choose Previous Quarter or shorter."
-        )
-        _anim_start = curr_idx - MAX_ANIM_DAYS
-    else:
-        _anim_start = prev_idx
-
-    _anim_dates = [pd.Timestamp(all_dates_str[i])
-                   for i in range(_anim_start, curr_idx + 1)]
-    _anim_key   = (all_dates_str[_anim_start], all_dates_str[curr_idx], mom_label, vol_label)
-
-    st.caption(f"{len(_anim_dates)} frames · {all_dates_str[_anim_start]} → {all_dates_str[curr_idx]}")
-
-    if "anim_cache" not in st.session_state:
-        st.session_state.anim_cache = (None, None)
-
-    if st.button("Generate Animation", use_container_width=True):
-        _prog = st.progress(0, text=f"Building frame 1 / {len(_anim_dates)}…")
-        def _on_progress(i, total):
-            _prog.progress(i / total, text=f"Building frame {i} / {total}…")
-        _fig_anim = build_anim_fig(metrics, _anim_dates, mom_label,
-                                   on_progress=_on_progress)
-        _prog.empty()
-        st.session_state.anim_cache = (_anim_key, _fig_anim)
-
-    _cached_key, _cached_fig = st.session_state.anim_cache
-    if _cached_fig is not None and _cached_key == _anim_key:
-        st.plotly_chart(_cached_fig, use_container_width=True)
-    elif _cached_fig is not None:
-        st.info("Date or parameters changed — click Generate to refresh.")
-
-# ── Section 3: Momentum ranking time series ───────────────────────────────────
-st.markdown("---")
-st.subheader(f"Momentum Ranking Time Series ({mom_label})")
-
-# Compute cross-sectional rank per date for all commodities
+# Compute cross-sectional rank per date for a given commodity subset
 @st.cache_data(ttl=3600)
 def build_rank_ts(metrics: pd.DataFrame, signal: str) -> pd.DataFrame:
     """Vectorised cross-sectional rank per date."""
@@ -651,96 +574,243 @@ def build_rank_ts(metrics: pd.DataFrame, signal: str) -> pd.DataFrame:
     df["rank"] = df.groupby("Date")[signal].transform(_rank)
     return df[["Date", "commodity", "rank"]].dropna(subset=["rank"])
 
-ts_cols_default = SOFT_NAMES
-ts_select = st.multiselect(
-    "Select commodities for time series",
-    options=ALL_NAMES,
-    default=ts_cols_default,
-)
 
-rank_ts = build_rank_ts(metrics, "mom_vol_adj")
+def render_rank_ts_chart(rank_ts: pd.DataFrame, select: list) -> go.Figure:
+    fig = go.Figure()
+    for name in select:
+        sub = rank_ts[rank_ts["commodity"] == name].sort_values("Date")
+        color = COMMODITY_TS_COLOR.get(name, CATEGORY_COLOR[COMMODITY_CATEGORY[name]])
+        fig.add_trace(go.Scatter(
+            x=sub["Date"], y=sub["rank"],
+            mode="lines", name=name,
+            line=dict(color=color, width=2.5 if IS_SOFT[name] else 1.5),
+        ))
+    fig.update_layout(
+        xaxis=dict(title="Date", showgrid=True, gridcolor="#f0f0f0"),
+        yaxis=dict(title="Cross-Sectional Rank (−20 to +20)",
+                   range=[-22, 22], zeroline=True, zerolinecolor="#bbb",
+                   showgrid=True, gridcolor="#f0f0f0"),
+        plot_bgcolor="#ffffff", paper_bgcolor="#ffffff",
+        legend=dict(orientation="h", yanchor="bottom", y=-0.3, xanchor="center", x=0.5),
+        margin=dict(l=50, r=20, t=30, b=80),
+        height=420,
+    )
+    return fig
 
-fig_ts = go.Figure()
-for name in ts_select:
-    sub = rank_ts[rank_ts["commodity"] == name].sort_values("Date")
-    color = COMMODITY_TS_COLOR.get(name, CATEGORY_COLOR[COMMODITY_CATEGORY[name]])
-    fig_ts.add_trace(go.Scatter(
-        x=sub["Date"], y=sub["rank"],
-        mode="lines", name=name,
-        line=dict(color=color, width=2.5 if IS_SOFT[name] else 1.5),
-    ))
 
-fig_ts.update_layout(
-    xaxis=dict(title="Date", showgrid=True, gridcolor="#f0f0f0"),
-    yaxis=dict(title="Cross-Sectional Rank (−20 to +20)",
-               range=[-22, 22], zeroline=True, zerolinecolor="#bbb",
-               showgrid=True, gridcolor="#f0f0f0"),
-    plot_bgcolor="#ffffff", paper_bgcolor="#ffffff",
-    legend=dict(orientation="h", yanchor="bottom", y=-0.3, xanchor="center", x=0.5),
-    margin=dict(l=50, r=20, t=30, b=80),
-    height=420,
-)
-st.plotly_chart(fig_ts, use_container_width=True)
+tab_all, tab_ags = st.tabs(["All Commodities", "Ags Only"])
 
-# ── Section 3b: Spread (Roll Yield) ranking time series ───────────────────────
-st.markdown("---")
-st.subheader("Spread Ranking Time Series (Roll Yield)")
+with tab_all:
+    # ── Section 1: Scatter charts ─────────────────────────────────────────────
+    st.markdown("---")
+    st.subheader("Momentum vs Roll Yield Scatter")
 
-spread_ts_select = st.multiselect(
-    "Select commodities for time series",
-    options=ALL_NAMES,
-    default=ts_cols_default,
-    key="spread_ts_multiselect",
-)
+    col_l, col_r = st.columns(2)
 
-rank_ts_spread = build_rank_ts(metrics, "roll_yield")
+    with col_l:
+        fig_rank_curr = scatter_fig(
+            snap_curr, "rank_mom", "rank_yield",
+            "Momentum vs Spread Scatter (Relative Rank Basis)",
+            mom_xlab, "1 Year Spread",
+            ranked=True,
+        )
+        st.plotly_chart(fig_rank_curr, use_container_width=True)
 
-fig_ts_spread = go.Figure()
-for name in spread_ts_select:
-    sub = rank_ts_spread[rank_ts_spread["commodity"] == name].sort_values("Date")
-    color = COMMODITY_TS_COLOR.get(name, CATEGORY_COLOR[COMMODITY_CATEGORY[name]])
-    fig_ts_spread.add_trace(go.Scatter(
-        x=sub["Date"], y=sub["rank"],
-        mode="lines", name=name,
-        line=dict(color=color, width=2.5 if IS_SOFT[name] else 1.5),
-    ))
+        fig_act_curr = scatter_fig(
+            snap_curr, "mom_vol_adj", "roll_yield",
+            "Momentum vs Spread Scatter (Actual)",
+            mom_xlab, "1 Year Spread",
+            x_pct=False, y_pct=True,
+            ranked=False,
+        )
+        st.plotly_chart(fig_act_curr, use_container_width=True)
 
-fig_ts_spread.update_layout(
-    xaxis=dict(title="Date", showgrid=True, gridcolor="#f0f0f0"),
-    yaxis=dict(title="Cross-Sectional Rank (−20 to +20)",
-               range=[-22, 22], zeroline=True, zerolinecolor="#bbb",
-               showgrid=True, gridcolor="#f0f0f0"),
-    plot_bgcolor="#ffffff", paper_bgcolor="#ffffff",
-    legend=dict(orientation="h", yanchor="bottom", y=-0.3, xanchor="center", x=0.5),
-    margin=dict(l=50, r=20, t=30, b=80),
-    height=420,
-)
-st.plotly_chart(fig_ts_spread, use_container_width=True)
+    with col_r:
+        fig_rank_prev = scatter_fig(
+            snap_prev, "rank_mom", "rank_yield",
+            f"Momentum vs Spread Scatter (Relative Rank Basis) : {prev_label}",
+            mom_xlab, "1 Year Spread",
+            ranked=True,
+        )
+        st.plotly_chart(fig_rank_prev, use_container_width=True)
 
-# ── Section 4: Volatility ranking (collapsible) ───────────────────────────────
-st.markdown("---")
-with st.expander("Volatility Ranking", expanded=False):
-    st.markdown(f"##### Cross-Sectional Volatility Rank ({vol_label} window) — {all_dates_str[curr_idx]}")
+        fig_act_prev = scatter_fig(
+            snap_prev, "mom_vol_adj", "roll_yield",
+            f"Momentum vs Spread Scatter (Actual) : {prev_label}",
+            mom_xlab, "1 Year Spread",
+            x_pct=False, y_pct=True,
+            ranked=False,
+        )
+        st.plotly_chart(fig_act_prev, use_container_width=True)
 
-    vol_select = st.multiselect(
-        "Select commodities",
+    # ── Section 2: Animated cross-section ─────────────────────────────────────
+    st.markdown("---")
+    with st.expander("Animated Cross-Section", expanded=False):
+        _anim_span = curr_idx - prev_idx
+        if _anim_span > MAX_ANIM_DAYS:
+            st.warning(
+                f"Period too long for animation ({_anim_span} trading days). "
+                f"Capped at {MAX_ANIM_DAYS} days (~6 months). "
+                f"Choose Previous Quarter or shorter."
+            )
+            _anim_start = curr_idx - MAX_ANIM_DAYS
+        else:
+            _anim_start = prev_idx
+
+        _anim_dates = [pd.Timestamp(all_dates_str[i])
+                       for i in range(_anim_start, curr_idx + 1)]
+        _anim_key   = (all_dates_str[_anim_start], all_dates_str[curr_idx], mom_label, vol_label)
+
+        st.caption(f"{len(_anim_dates)} frames · {all_dates_str[_anim_start]} → {all_dates_str[curr_idx]}")
+
+        if "anim_cache" not in st.session_state:
+            st.session_state.anim_cache = (None, None)
+
+        if st.button("Generate Animation", use_container_width=True):
+            _prog = st.progress(0, text=f"Building frame 1 / {len(_anim_dates)}…")
+            def _on_progress(i, total):
+                _prog.progress(i / total, text=f"Building frame {i} / {total}…")
+            _fig_anim = build_anim_fig(metrics, _anim_dates, mom_label,
+                                       on_progress=_on_progress)
+            _prog.empty()
+            st.session_state.anim_cache = (_anim_key, _fig_anim)
+
+        _cached_key, _cached_fig = st.session_state.anim_cache
+        if _cached_fig is not None and _cached_key == _anim_key:
+            st.plotly_chart(_cached_fig, use_container_width=True)
+        elif _cached_fig is not None:
+            st.info("Date or parameters changed — click Generate to refresh.")
+
+    # ── Section 3: Momentum ranking time series ────────────────────────────────
+    st.markdown("---")
+    st.subheader(f"Momentum Ranking Time Series ({mom_label})")
+
+    ts_cols_default = SOFT_NAMES
+    ts_select = st.multiselect(
+        "Select commodities for time series",
         options=ALL_NAMES,
-        default=SOFT_NAMES,
-        key="vol_multiselect",
+        default=ts_cols_default,
+        key="all_ts_multiselect",
     )
 
-    snap_vol = snap_curr[snap_curr["commodity"].isin(vol_select)].copy()
-    snap_vol = snap_vol.dropna(subset=["rank_vol","vol"]).sort_values("rank_vol", ascending=False)
+    rank_ts = build_rank_ts(metrics, "mom_vol_adj")
+    st.plotly_chart(render_rank_ts_chart(rank_ts, ts_select), use_container_width=True)
 
-    if snap_vol.empty:
-        st.info("No volatility data available.")
-    else:
-        tbl = snap_vol[["commodity","vol","rank_vol","mom_vol_adj","rank_mom","roll_yield","rank_yield"]].copy()
-        tbl.columns = ["Commodity","Vol (ann.)","Vol Rank","Mom (Vol Adj)","Mom Rank","Roll Yield","Yield Rank"]
-        tbl["Vol (ann.)"]    = (tbl["Vol (ann.)"]   * 100).round(1).astype(str) + "%"
-        tbl["Roll Yield"]    = (tbl["Roll Yield"]   * 100).round(1).astype(str) + "%"
-        tbl["Mom (Vol Adj)"] = tbl["Mom (Vol Adj)"].round(2)
-        st.dataframe(tbl.set_index("Commodity"), use_container_width=True)
+    # ── Section 3b: Spread (Roll Yield) ranking time series ────────────────────
+    st.markdown("---")
+    st.subheader("Spread Ranking Time Series (Roll Yield)")
+
+    spread_ts_select = st.multiselect(
+        "Select commodities for time series",
+        options=ALL_NAMES,
+        default=ts_cols_default,
+        key="spread_ts_multiselect",
+    )
+
+    rank_ts_spread = build_rank_ts(metrics, "roll_yield")
+    st.plotly_chart(render_rank_ts_chart(rank_ts_spread, spread_ts_select), use_container_width=True)
+
+    # ── Section 4: Volatility ranking (collapsible) ────────────────────────────
+    st.markdown("---")
+    with st.expander("Volatility Ranking", expanded=False):
+        st.markdown(f"##### Cross-Sectional Volatility Rank ({vol_label} window) — {all_dates_str[curr_idx]}")
+
+        vol_select = st.multiselect(
+            "Select commodities",
+            options=ALL_NAMES,
+            default=SOFT_NAMES,
+            key="vol_multiselect",
+        )
+
+        snap_vol = snap_curr[snap_curr["commodity"].isin(vol_select)].copy()
+        snap_vol = snap_vol.dropna(subset=["rank_vol","vol"]).sort_values("rank_vol", ascending=False)
+
+        if snap_vol.empty:
+            st.info("No volatility data available.")
+        else:
+            tbl = snap_vol[["commodity","vol","rank_vol","mom_vol_adj","rank_mom","roll_yield","rank_yield"]].copy()
+            tbl.columns = ["Commodity","Vol (ann.)","Vol Rank","Mom (Vol Adj)","Mom Rank","Roll Yield","Yield Rank"]
+            tbl["Vol (ann.)"]    = (tbl["Vol (ann.)"]   * 100).round(1).astype(str) + "%"
+            tbl["Roll Yield"]    = (tbl["Roll Yield"]   * 100).round(1).astype(str) + "%"
+            tbl["Mom (Vol Adj)"] = tbl["Mom (Vol Adj)"].round(2)
+            st.dataframe(tbl.set_index("Commodity"), use_container_width=True)
+
+with tab_ags:
+    # Ranks recomputed within the Ags-only universe (Softs + Grains & Oilseeds +
+    # Livestock), not sliced from the 31-name global rank — so a name's rank here
+    # reflects its standing among ags only, and will differ from the main tab.
+    metrics_ag  = metrics[metrics["commodity"].isin(AG_NAMES)]
+    snap_curr_ag = snapshot(metrics_ag, curr_ts)
+    snap_prev_ag = snapshot(metrics_ag, prev_ts)
+
+    st.markdown("---")
+    st.subheader("Momentum vs Roll Yield Scatter — Ags Only")
+
+    col_l, col_r = st.columns(2)
+
+    with col_l:
+        fig_rank_curr_ag = scatter_fig(
+            snap_curr_ag, "rank_mom", "rank_yield",
+            "Momentum vs Spread Scatter (Relative Rank Basis) — Ags",
+            mom_xlab, "1 Year Spread",
+            ranked=True, names=AG_NAMES,
+        )
+        st.plotly_chart(fig_rank_curr_ag, use_container_width=True, key="ag_rank_curr")
+
+        fig_act_curr_ag = scatter_fig(
+            snap_curr_ag, "mom_vol_adj", "roll_yield",
+            "Momentum vs Spread Scatter (Actual) — Ags",
+            mom_xlab, "1 Year Spread",
+            x_pct=False, y_pct=True,
+            ranked=False, names=AG_NAMES,
+        )
+        st.plotly_chart(fig_act_curr_ag, use_container_width=True, key="ag_act_curr")
+
+    with col_r:
+        fig_rank_prev_ag = scatter_fig(
+            snap_prev_ag, "rank_mom", "rank_yield",
+            f"Momentum vs Spread Scatter (Relative Rank Basis) — Ags : {prev_label}",
+            mom_xlab, "1 Year Spread",
+            ranked=True, names=AG_NAMES,
+        )
+        st.plotly_chart(fig_rank_prev_ag, use_container_width=True, key="ag_rank_prev")
+
+        fig_act_prev_ag = scatter_fig(
+            snap_prev_ag, "mom_vol_adj", "roll_yield",
+            f"Momentum vs Spread Scatter (Actual) — Ags : {prev_label}",
+            mom_xlab, "1 Year Spread",
+            x_pct=False, y_pct=True,
+            ranked=False, names=AG_NAMES,
+        )
+        st.plotly_chart(fig_act_prev_ag, use_container_width=True, key="ag_act_prev")
+
+    # ── Momentum ranking time series (Ags) ─────────────────────────────────────
+    st.markdown("---")
+    st.subheader(f"Momentum Ranking Time Series ({mom_label}) — Ags Only")
+
+    ag_ts_select = st.multiselect(
+        "Select commodities for time series",
+        options=AG_NAMES,
+        default=AG_NAMES,
+        key="ag_ts_multiselect",
+    )
+
+    rank_ts_ag = build_rank_ts(metrics_ag, "mom_vol_adj")
+    st.plotly_chart(render_rank_ts_chart(rank_ts_ag, ag_ts_select), use_container_width=True, key="ag_mom_ts_chart")
+
+    # ── Spread (Roll Yield) ranking time series (Ags) ──────────────────────────
+    st.markdown("---")
+    st.subheader("Spread Ranking Time Series (Roll Yield) — Ags Only")
+
+    ag_spread_ts_select = st.multiselect(
+        "Select commodities for time series",
+        options=AG_NAMES,
+        default=AG_NAMES,
+        key="ag_spread_ts_multiselect",
+    )
+
+    rank_ts_spread_ag = build_rank_ts(metrics_ag, "roll_yield")
+    st.plotly_chart(render_rank_ts_chart(rank_ts_spread_ag, ag_spread_ts_select), use_container_width=True, key="ag_spread_ts_chart")
 
 # ── Footer ────────────────────────────────────────────────────────────────────
 st.caption(f"Data updated: {latest_date.date()} | {N} commodities | Vol window: {vol_label} | Mom: {mom_label}")
