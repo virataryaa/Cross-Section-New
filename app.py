@@ -26,6 +26,29 @@ h1,h2,h3{color:#1d1d1f;}
 
 st.title("Cross Section Monitor")
 
+_NAV_ACCENT = "#1565C0"
+st.markdown(f"""<style>
+  .st-key-nav_section [data-testid="stButtonGroup"] > div {{
+    display:inline-flex; gap:4px; padding:4px; background:#eef0f4;
+    border:1px solid #e3e7ee; border-radius:999px;
+  }}
+  .st-key-nav_section button[kind^="segmented_control"] {{
+    border:none !important; border-radius:999px !important; margin:0 !important;
+    padding:.4rem 1.4rem !important; min-height:0 !important;
+    background:transparent !important; box-shadow:none !important;
+    transition:background .15s ease, color .15s ease;
+  }}
+  .st-key-nav_section button[kind^="segmented_control"] p {{
+    font-size:.86rem !important; font-weight:600 !important; letter-spacing:.02em;
+    color:#5b6472 !important;
+  }}
+  .st-key-nav_section button[kind="segmented_control"]:hover {{ background:#e2e5eb !important; }}
+  .st-key-nav_section button[kind="segmented_controlActive"] {{
+    background:{_NAV_ACCENT} !important; box-shadow:0 1px 3px rgba(0,0,0,.18) !important;
+  }}
+  .st-key-nav_section button[kind="segmented_controlActive"] p {{ color:#ffffff !important; }}
+</style>""", unsafe_allow_html=True)
+
 # ── Constants ─────────────────────────────────────────────────────────────────
 HERE = Path(__file__).parent
 
@@ -616,9 +639,8 @@ def render_rank_ts_chart(rank_ts: pd.DataFrame, select: list) -> go.Figure:
     return fig
 
 
-tab_all, tab_ags = st.tabs(["All Commodities", "Ags Only"])
-
-with tab_all:
+@st.fragment
+def _view_all():
     # ── Section 1: Scatter charts ─────────────────────────────────────────────
     st.markdown("---")
     st.subheader("Momentum vs Roll Yield Scatter")
@@ -753,7 +775,8 @@ with tab_all:
             tbl["Mom (Vol Adj)"] = tbl["Mom (Vol Adj)"].round(2)
             st.dataframe(tbl.set_index("Commodity"), use_container_width=True)
 
-with tab_ags:
+@st.fragment
+def _view_ags():
     # Ranks recomputed within the Ags-only universe (Softs + Grains + Oilseeds +
     # Livestock), not sliced from the 31-name global rank — so a name's rank here
     # reflects its standing among ags only, and will differ from the main tab.
@@ -829,6 +852,19 @@ with tab_ags:
 
     rank_ts_spread_ag = build_rank_ts(metrics_ag, "roll_yield")
     st.plotly_chart(render_rank_ts_chart(rank_ts_spread_ag, ag_spread_ts_select), use_container_width=True, key="ag_spread_ts_chart")
+
+
+# ── Section selector — button pair instead of st.tabs, so only the chosen
+# section's body actually runs each rerun (both used to build on every sidebar
+# change with st.tabs, since it renders every pane and just hides the rest) ──
+with st.container(key="nav_section"):
+    section = st.segmented_control("Section", ["All Commodities", "Ags Only"],
+                                   default="All Commodities", key="main_section",
+                                   label_visibility="collapsed")
+if section == "Ags Only":
+    _view_ags()
+else:
+    _view_all()
 
 # ── Footer ────────────────────────────────────────────────────────────────────
 st.caption(f"Data updated: {latest_date.date()} | {N} commodities | Vol window: {vol_label} | Mom: {mom_label}")
